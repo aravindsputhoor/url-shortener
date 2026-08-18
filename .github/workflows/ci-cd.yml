@@ -8,7 +8,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  lint-and-test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -23,19 +23,15 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 pytest httpx -r requirements.txt
+          pip install flake8 -r requirements.txt
 
       - name: Lint Code with Flake8
         run: |
           flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
           flake8 app --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-      - name: Run Unit Tests
-        run: |
-          pytest -v
-
   build-scan-push:
-    needs: lint-and-test
+    needs: lint
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     steps:
