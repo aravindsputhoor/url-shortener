@@ -77,3 +77,4 @@ docker compose ps
 - `POST /shorten` - Shorten URL (Payload: `{"url": "https://example.com"}`)
 - `GET /{short_code}` - Redirect to destination
 - `GET /stats/{short_code}` - View statistics & click count
+
