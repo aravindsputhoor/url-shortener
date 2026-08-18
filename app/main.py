@@ -1,20 +1,19 @@
-from email.mime import text
-import string
-import random
 import os
+import random
+import string
 import traceback
 from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, HttpUrl
-from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse, RedirectResponse
+from pydantic import BaseModel, HttpUrl
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from database import engine, get_db, redis_client, Base
 from models import URLMapping
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Containerized URL Shortener")
+app = FastAPI(title="Containerized URL Shortener Platform")
 
 class URLCreateRequest(BaseModel):
     url: HttpUrl
@@ -29,13 +28,20 @@ def generate_short_code(length: int = 6) -> str:
     chars = string.ascii_letters + string.digits
     return "".join(random.choice(chars) for _ in range(length))
 
+@app.get("/", response_class=FileResponse)
+def serve_ui():
+    index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "Welcome to URL Shortener API. UI template missing."}
+
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
     try:
         # Check Redis connection
         redis_client.ping()
 
-        # Check Postgres connection (must use text() in SQLAlchemy 2.0+)
+        # Check Postgres connection using SQLAlchemy text()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
 
@@ -72,13 +78,30 @@ def shorten_url(payload: URLCreateRequest, db: Session = Depends(get_db)):
         "click_count": 0
     }
 
+# Explicit sub-routes must be placed before wildcard route /{short_code}
+@app.get("/stats/{short_code}", response_model=URLResponse)
+def get_stats(short_code: str, db: Session = Depends(get_db)):
+    mapping = db.query(URLMapping).filter(URLMapping.short_code == short_code).first()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Short URL not found")
+
+    # Sync with Redis count if present
+    cached_clicks = redis_client.get(f"clicks:{short_code}")
+    click_count = int(cached_clicks) if cached_clicks else mapping.click_count
+
+    return {
+        "short_code": mapping.short_code,
+        "short_url": f"http://localhost/{mapping.short_code}",
+        "original_url": mapping.original_url,
+        "click_count": click_count
+    }
+
 @app.get("/{short_code}")
 def redirect_to_url(short_code: str, db: Session = Depends(get_db)):
     cached_url = redis_client.get(f"url:{short_code}")
     
     if cached_url:
         redis_client.incr(f"clicks:{short_code}")
-        # Async/inline sync DB increment
         db.query(URLMapping).filter(URLMapping.short_code == short_code).update(
             {URLMapping.click_count: URLMapping.click_count + 1}
         )
@@ -97,27 +120,3 @@ def redirect_to_url(short_code: str, db: Session = Depends(get_db)):
     redis_client.set(f"clicks:{short_code}", mapping.click_count)
 
     return RedirectResponse(url=mapping.original_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-@app.get("/stats/{short_code}", response_model=URLResponse)
-def get_stats(short_code: str, db: Session = Depends(get_db)):
-    mapping = db.query(URLMapping).filter(URLMapping.short_code == short_code).first()
-    if not mapping:
-        raise HTTPException(status_code=404, detail="Short URL not found")
-
-    # Sync with Redis count if present
-    cached_clicks = redis_client.get(f"clicks:{short_code}")
-    click_count = int(cached_clicks) if cached_clicks else mapping.click_count
-
-    return {
-        "short_code": mapping.short_code,
-        "short_url": f"http://localhost/{mapping.short_code}",
-        "original_url": mapping.original_url,
-        "click_count": click_count
-    }
-
-@app.get("/", response_class=FileResponse)
-def serve_ui():
-    index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": "Welcome to URL Shortener API. UI template missing."}
