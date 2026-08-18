@@ -1,6 +1,8 @@
+from email.mime import text
 import string
 import random
 import os
+import traceback
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, HttpUrl
@@ -29,14 +31,21 @@ def generate_short_code(length: int = 6) -> str:
 
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
-    # Verify DB and Redis connectivity
     try:
+        # Check Redis connection
         redis_client.ping()
+
+        # Check Postgres connection (must use text() in SQLAlchemy 2.0+)
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
+
         return {"status": "healthy"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+        print("HEALTH CHECK FAILED:", traceback.format_exc(), flush=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Health check failed: {str(e)}"
+        )
 
 @app.post("/shorten", response_model=URLResponse, status_code=status.HTTP_201_CREATED)
 def shorten_url(payload: URLCreateRequest, db: Session = Depends(get_db)):

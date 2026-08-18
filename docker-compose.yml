@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   nginx:
     image: nginx:alpine
@@ -38,25 +36,24 @@ services:
       - internal_net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
 
   postgres:
     image: postgres:15-alpine
     container_name: url_postgres
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-urluser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urlpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-urldb}
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
       - internal_net
-    # NOTE: Ports are NOT exposed to the host to meet security requirements
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-urluser} -d ${POSTGRES_DB:-urldb}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -69,7 +66,6 @@ services:
       - redisdata:/data
     networks:
       - internal_net
-    # NOTE: Ports are NOT exposed to the host
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
