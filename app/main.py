@@ -2,6 +2,7 @@ import os
 import random
 import string
 import traceback
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, HttpUrl
@@ -11,9 +12,13 @@ from sqlalchemy.orm import Session
 from database import engine, get_db, redis_client, Base
 from models import URLMapping
 
-Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize DB tables on application startup
+    Base.metadata.create_all(bind=engine)
+    yield
 
-app = FastAPI(title="Containerized URL Shortener Platform")
+app = FastAPI(title="Containerized URL Shortener Platform", lifespan=lifespan)
 
 class URLCreateRequest(BaseModel):
     url: HttpUrl
@@ -38,13 +43,9 @@ def serve_ui():
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
     try:
-        # Check Redis connection
         redis_client.ping()
-
-        # Check Postgres connection using SQLAlchemy text()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-
         return {"status": "healthy"}
     except Exception as e:
         print("HEALTH CHECK FAILED:", traceback.format_exc(), flush=True)
@@ -58,7 +59,6 @@ def shorten_url(payload: URLCreateRequest, db: Session = Depends(get_db)):
     original_url = str(payload.url)
     short_code = generate_short_code()
 
-    # Collision resolution
     while db.query(URLMapping).filter(URLMapping.short_code == short_code).first():
         short_code = generate_short_code()
 
@@ -67,7 +67,6 @@ def shorten_url(payload: URLCreateRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_mapping)
 
-    # Cache in Redis
     redis_client.set(f"url:{short_code}", original_url)
     redis_client.set(f"clicks:{short_code}", 0)
 
@@ -78,14 +77,12 @@ def shorten_url(payload: URLCreateRequest, db: Session = Depends(get_db)):
         "click_count": 0
     }
 
-# Explicit sub-routes must be placed before wildcard route /{short_code}
 @app.get("/stats/{short_code}", response_model=URLResponse)
 def get_stats(short_code: str, db: Session = Depends(get_db)):
     mapping = db.query(URLMapping).filter(URLMapping.short_code == short_code).first()
     if not mapping:
         raise HTTPException(status_code=404, detail="Short URL not found")
 
-    # Sync with Redis count if present
     cached_clicks = redis_client.get(f"clicks:{short_code}")
     click_count = int(cached_clicks) if cached_clicks else mapping.click_count
 
@@ -108,7 +105,6 @@ def redirect_to_url(short_code: str, db: Session = Depends(get_db)):
         db.commit()
         return RedirectResponse(url=cached_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    # Cache miss: Fallback to DB
     mapping = db.query(URLMapping).filter(URLMapping.short_code == short_code).first()
     if not mapping:
         raise HTTPException(status_code=404, detail="Short URL not found")
