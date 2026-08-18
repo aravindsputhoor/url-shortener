@@ -1,9 +1,11 @@
 import string
 import random
+import os
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
+from fastapi.responses import FileResponse, RedirectResponse
 
 from database import engine, get_db, redis_client, Base
 from models import URLMapping
@@ -103,3 +105,10 @@ def get_stats(short_code: str, db: Session = Depends(get_db)):
         "original_url": mapping.original_url,
         "click_count": click_count
     }
+
+@app.get("/", response_class=FileResponse)
+def serve_ui():
+    index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "Welcome to URL Shortener API. UI template missing."}

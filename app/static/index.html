@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>URL Shortener Platform</title>
+  <style>
+    :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 40px 16px; margin: 0; }
+    .card { background: var(--card); border: 1px solid #e2e8f0; border-radius: 10px; max-width: 500px; width: 100%; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+    h1 { font-size: 1.4rem; margin-top: 0; color: #0f172a; text-align: center; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+    input[type="url"], input[type="text"] { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.95rem; }
+    button { width: 100%; background: var(--primary); color: white; border: none; padding: 10px; border-radius: 6px; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    .result { margin-top: 20px; padding: 14px; background: #f1f5f9; border-radius: 6px; font-size: 0.9rem; word-break: break-all; display: none; }
+    .result a { color: var(--primary); font-weight: 600; text-decoration: none; }
+    .divider { margin: 24px 0; border: 0; border-top: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>⚡ URL Shortener</h1>
+
+  <!-- Shorten URL Section -->
+  <div class="form-group">
+    <label for="longUrl">Enter Long URL</label>
+    <input type="url" id="longUrl" placeholder="https://example.com/very-long-link" required />
+  </div>
+  <button onclick="shortenUrl()">Generate Short URL</button>
+  <div id="shortenResult" class="result"></div>
+
+  <hr class="divider" />
+
+  <!-- Track Analytics Section -->
+  <div class="form-group">
+    <label for="statCode">Track Clicks by Short Code</label>
+    <input type="text" id="statCode" placeholder="e.g. k9xL2p" />
+  </div>
+  <button style="background: #475569;" onclick="checkStats()">View Stats</button>
+  <div id="statsResult" class="result"></div>
+</div>
+
+<script>
+  async function shortenUrl() {
+    const url = document.getElementById('longUrl').value.trim();
+    const resBox = document.getElementById('shortenResult');
+    if (!url) return;
+
+    try {
+      const res = await fetch('/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        resBox.style.display = 'block';
+        resBox.innerHTML = `
+          <strong>Short URL:</strong> <a href="${data.short_url}" target="_blank">${data.short_url}</a><br>
+          <strong>Short Code:</strong> <code>${data.short_code}</code>
+        `;
+      } else {
+        alert(data.detail ? JSON.stringify(data.detail) : 'Error shortening URL');
+      }
+    } catch (e) {
+      alert('Network error communicating with the server.');
+    }
+  }
+
+  async function checkStats() {
+    const code = document.getElementById('statCode').value.trim();
+    const resBox = document.getElementById('statsResult');
+    if (!code) return;
+
+    try {
+      const res = await fetch(`/stats/${code}`);
+      const data = await res.json();
+      if (res.ok) {
+        resBox.style.display = 'block';
+        resBox.innerHTML = `
+          <strong>Original URL:</strong> ${data.original_url}<br>
+          <strong>Total Clicks:</strong> <span style="font-size: 1.1rem; color: #2563eb; font-weight: bold;">${data.click_count}</span>
+        `;
+      } else {
+        resBox.style.display = 'block';
+        resBox.innerHTML = `<span style="color: #dc2626;">Error: ${data.detail || 'Code not found'}</span>`;
+      }
+    } catch (e) {
+      alert('Failed to fetch statistics.');
+    }
+  }
+</script>
+
+</body>
+</html>
